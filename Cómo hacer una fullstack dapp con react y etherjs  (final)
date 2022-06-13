@@ -1,0 +1,1430 @@
+En este post aprenderemos a como crear una dapp full stack, muy similar a la imagen de este post. crearemos un simple smart contract con Solidity donde realizaremos una compra. luego escribiremos test y por ultimo el frontend.
+
+[Puedes contactarme por telegram si necesitas contratar a un desarrollador Blockchain Full Stack.](https://t.me/steadylearner)
+
+[También puedes unirte a mi grupo de telegram, en el cual puedes encontrar otros desarrolladores blockchain, así como reclutadores, jefes de proyecto, así como hacer preguntas y hacer conexiones.](https://t.me/solanadevelopers)
+
+[También puedes aprender a como hacer tests de tokens BEP/ERC20 aquí.](https://dev.to/steadylearner/how-to-test-a-bep20-token-with-hardhat-and-not-get-scamed-5bjj)
+
+[Recientemente despliegue un BEP20token en la red principal de BSC por motivo de aprendizaje.](https://bscscan.com/token/0x6de23a768e59a76d46bc7ddf9bcbb0f8c46cb7c0#balances) 
+
+[Si deseas algo, puedes contactarme.](https://t.me/steadylearner)
+
+Me guié con [The complete guide to full stack ethereum development](https://dev.to/dabit3/the-complete-guide-to-full-stack-ethereum-development-3j13) para configurar todo el entorno local de desarrollo.
+
+Puedes clonar el repo [the code used for this post at the repository use $yarn to install dependencies used here.](https://github.com/steadylearner/blockchain/tree/main/real/eth)
+
+Leer [Hardhat](https://hardhat.org/) y [ethers.js](https://docs.ethers.io/v5/) así como su documentación.
+
+Usaremos [la extensión de Metamask](https://metamask.io/) para este tutorial. 
+
+Por favor, instalalo en tu explorador antes de empezar.
+
+La imagen de un auto rojo es usada aquí para hacer un ejemplo mas realista, pero puedes usar cualquier otro producto y edita la descripción en el frontend.
+
+Los comandos que se usarán para el desarrollo local de la dapp serán estos en el mismo orden. Necesitarás usarlos nuevamente solo si deseas crear tu propia versión al finalizar el tutorial.
+
+```toml
+# See your Solidity code for the contract 
+# is ok and compile without any error or warning.
+compile="npx hardhat compile",
+# Write tests to see the smart contract code works 
+# as you expect for various situations.
+test="npx hardhat test",
+
+# Run local solidity development environment.
+# It will set up dummy accounts that you can use to test.
+serve="npx hardhat node",
+# Upload your Solidity contract code to it 
+# before you run the frontend code.
+deploy="npx hardhat run scripts/deploy.js --network localhost",
+
+# Run your React frontend code.
+start="react-scripts start",
+```
+
+Guardalos en el archivo [package.json](https://github.com/steadylearner/blockchain/blob/main/real/eth/package.json) y usalos con `$yarn compile` etc o puedes escribir un pequeño CLI en caso de que desees conservar los comentarios.
+
+[Si hasta ahora no estás familiarizado con DeFiIf you are not familiar with DeFi puedes leer este post.](https://www.reddit.com/r/CryptoCurrency/comments/nletmi/defi_explained_the_full_guide)
+
+Mientras pruebes tu dapp, necesitarás algunas cuentas, además será de ayuda si te unes a alguna comunidad para que te den un poco de apoyo.
+
+Si no tienes ninguna Wallet de cryptos aun, puedes crearte una en [Binance](https://accounts.binance.com/en/register?ref=SQ86TYC5).
+
+[Si estás interesando en aprender ERC20 o BEP20 token, puedes particiar en esta comunidad para aprender temas relevantes en blockchain.](https://t.me/SCAM_Coin_Community)
+
+[Si quieres aprender mas sobre BEP20, por favor lee la siguiente documentacion.](https://github.com/binance-chain/BEPs/blob/master/BEP20.md)
+
+Puedes comprar y vender tus creaciones en [Opensea](https://opensea.io?ref=0x5c09780933620765a1fb91c09fd637103a74ee2d). 
+
+También esta [Solidity developer group](https://t.me/dev_solidity) y [otro para busqueda de empleo](https://t.me/ethereum_jobs_market).
+
+[Si necesitas a un desarrollador, contactame.](https://t.me/steadylearner) 
+
+## Tabla de Contenido
+
+1. Escribir el smart contract con Solidity
+2. Preparar lost tests
+3. Configurar Metamask con Hardhat
+4. Programar el código del frontend con React y ethers.js
+5. Conclusión
+
+---
+
+<br />
+
+## 1. Escribir el smart contract con Solidity
+
+Si no estás familiarizado con Solidity y otras cosas relevantes para el desarrollo de Ethereum, puedes consultar [su sitio web oficial](https://docs.soliditylang.org/en/v0.8.4/).
+
+El código usado aquí fue adaptado de [the official safe remote purchase example](https://docs.soliditylang.org/en/v0.8.4/solidity-by-example.html#safe-remote-purchase). 
+
+Por favor primero lee el código de abajo. Incluí la explicación después del bloque.
+
+```js
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity >=0.7.0 <0.9.0;
+
+contract Escrow {
+    uint public price;
+    address payable public seller;
+    address payable public buyer;
+
+    // 1.
+    address[] previousBuyers;
+
+    // 2.
+    enum State { Sale, Locked, Release, Closed, Complete }
+    
+    State public state;
+
+    modifier condition(bool _condition) {
+        require(_condition);
+        _;
+    }
+
+    modifier onlyBuyer() {
+        require(
+            msg.sender == buyer,
+            "Only buyer can call this."
+        );
+        _;
+    }
+
+    modifier onlySeller() {
+        require(
+            msg.sender == seller,
+            "Only seller can call this."
+        );
+        _;
+    }
+
+    // 3.
+    modifier notSeller() {
+        require(
+            msg.sender != seller,
+            "Seller shouldn't call this."
+        );
+        _;
+    }
+
+    modifier inState(State _state) {
+        require(
+            state == _state,
+            "Invalid state."
+        );
+        _;
+    }
+
+    // 4.
+    event Closed(
+        uint256 when
+    );
+
+    event ConfirmPurchase(
+        uint256 when,
+        address by
+    );
+    event ConfirmReceived(
+        uint256 when,
+        address by
+    );
+    
+    event SellerRefundBuyer(
+        uint256 when
+    );
+    event SellerRefunded(
+        uint256 when
+    );
+
+    event Restarted(
+        uint256 when
+    );
+    event End(
+        uint256 when
+    );
+
+    constructor() payable {
+        seller = payable(msg.sender);
+
+        price = msg.value / 2;
+        
+        require((2 * price) == msg.value, "Value has to be even.");
+    }
+
+    // 5. 
+    function close()
+        public
+        onlySeller
+        inState(State.Sale)
+    {
+        state = State.Closed;
+        seller.transfer(address(this).balance);
+        
+        emit Closed(
+            block.timestamp
+        );
+    }
+
+    function confirmPurchase()
+        public
+        notSeller
+        inState(State.Sale)
+        condition(msg.value == (2 * price))
+        payable
+    {
+        buyer = payable(msg.sender);
+        state = State.Locked;
+
+        emit ConfirmPurchase(
+            block.timestamp,
+            buyer
+        );
+    }
+
+    function confirmReceived()
+        public
+        onlyBuyer
+        inState(State.Locked)
+    {
+        state = State.Release;
+
+        buyer.transfer(price); // Buyer receive 1 x value here
+        emit ConfirmReceived(
+            block.timestamp,
+            buyer
+        );
+    }
+
+    // 6.
+    function refundBuyer()
+        public
+        onlySeller
+        inState(State.Locked)
+    {
+        // Give the option to the seller to refund buyer before sending a product(car) here.
+        state = State.Sale;
+        buyer = payable(0);
+        
+        emit SellerRefundBuyer(
+            block.timestamp
+        );
+    }
+
+    function refundSeller()
+        public
+        onlySeller
+        inState(State.Release)
+    {
+        state = State.Complete;
+        
+        seller.transfer(3 * price); 
+        // 1.
+        previousBuyers.push(buyer);
+
+        emit SellerRefunded(
+            block.timestamp
+        );
+    }
+
+    // 7.
+    function restartContract() 
+        public
+        onlySeller
+        // inState(State.Complete)
+        payable
+    {
+        if (state == State.Closed || state == State.Complete) {
+            require((2 * price) == msg.value, "Value has to be equal to what started the contract.");
+
+            state = State.Sale;
+            
+            // Reset buyer to allow the same buyer again.
+            buyer = payable(0);
+            // This doesn't work.
+            // buyer = address(0);
+
+            emit Restarted(
+                block.timestamp
+            );
+        }
+    }
+
+    // 1.
+    function listPreviousBuyers()public view returns(address [] memory){
+        return previousBuyers;
+    }
+
+    // totalPreviousBuyers
+    function totalSales() public view returns(uint count) {
+        return previousBuyers.length;
+    }
+
+    function end() 
+        public
+        onlySeller
+    {
+         if (state == State.Closed || state == State.Complete) {
+            //  Should put End event before selfdestruct to update the frontend.
+            // 8.
+            emit End(
+                block.timestamp
+            );
+            
+            // state = State.End;
+            selfdestruct(seller);   
+
+            // This doesn't work.
+            // emit End(
+            //     block.timestamp
+            // );         
+        }
+    }
+}
+```
+
+Espero que ya hayas leido el código. para ayudaarte a entender lo que hace, vamos a imaginar casos de la vida real.
+
+Digamos que eres un vendedor de autos, y quieres venderlos con ETH y un smart contract usado aquí.
+
+Primero tendrías que desplegar este a la red de Ethereum. Luego después de haber realizando un despliegue exitoso, el estado del smart contract será "Sale" (es decir venta) como estado inicial. No habra comprador solo vendedor (dueño del smart contract) hasta este punto.
+
+![Vendedor](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/215trnj7whbquigxgwrv.png)
+
+Puedes esperar por **un visitante** a que pague para ser **el comprador** o cerrar el contract si llegase a existir algun problema antes de que eso de a a lugar.
+
+![Visitante](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/7tynnbk8a8jn73w3pxdg.png)
+
+Si puedieses encontrar un comprador y luego su pago de deposito(price * 2) con 2ETH el estado del contract será **bloqueado**. Luego tu como vendedor puedes mandar un auto para el usuario y esperar por el hasta que confirme que lo recibió **confirmación recibida**
+
+![Buyer](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/awp4juhutof3nxg4bnb5.png)
+
+![Buyer confirmed](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/iitti1sak05crxihr9xd.png)
+
+Todo salió bien, y el comprador puedes extraer el resto de sus 1ETH del deposito, y el vendedor pudo hacerlo también con sus 3ETH incluyendo 1ETH por el auto que vendio.
+
+![Buyer refund](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/gsticeelhyt5qglwp2ex.png)
+
+En este punto el contract hizo todo su trabajo, y queda a la espera a que el vendedor decida si desea reiniciar(volver a vender otro auto) o finalizarlo.
+
+![Contract Complete](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/rf18d1ms8dcgf698rgse.png)
+
+Pensemos varias situaciones que puedan ocurrir con este contrato/contract. Esto te ayudará a pensar en los detalles del código y como funciona.
+
+**1.** haremos una lista de previos compradores y vamos a incluirlos solo cuando el vendedor desee volver a vender un contract. Otros compradores (empezando desde el segundo comprador) podrán ver la ista antes de decidir si compran o no un auto.
+
+**2.** Los valores Enum de Solidity van a devolver valores int (enteros) (0, 1, 2, 3, 4) cuando pidamos el estado del contract con `await Escrow.state()`. 
+
+escribiremos un convertidor (humanReadbleEscrowState) para eso luego.
+
+**3.** incluiremos un modificador `notseller` que no permita al vendedor transformarse en comprador al mismo tiempo.
+
+**4.** Puedes ver envetos que tienen casi los mismos nombres de las funciones abajo. los usaremos para actualizar el frontend sin necesidad de hacer refresh en la página luego y mostraremos algunos mensajes por consola. Incluidas variables que queiras usar desde el blockchain aquí.
+
+**5.** Emitiremos los eventos al final de las funcions luego de que el estado y otras variables se modifiquen. La excepción es la función **end** porque después de `selfdestruct(seller);` los eventos no van a funcionar mas.
+
+**6.** Vamos a incluir la función `refundBuyer` pata dar la opción al vendedor de reembolsar al comprador cuando el estado del contract este **bloqueado**. Luego puede ser reiniciado otra vez, o cerrarse.
+
+**7.** Si el comprador decide reiniciar el contract, vamos a requerir que el deposite 2ETH nuevamente e incluir el comprador anterior a la lista de compradores para aydudar a futuros compradores poder consultar.
+
+Con esa información sería suficiente para ayudarte a entender lo que hace el contract. el código aquí no esta validado aún, por favor usalo de referencia o para aprender.
+
+Ya tenemos nuestro smart contract listo, escribiremos los tests para ver si funciona como esperamos. Estoy va a ser de ayuda también cuando queramos realizar cambios al contract y antes de cambiar las partes del frontend que correspondan.
+
+Verifica que tu smart contract compile con **$yarn compile** ($npx hardhat compile).
+
+## 2. Preparar los tests 
+
+En la sección anterior, preparamos el código del contract con Solidity. ahora usaremos tests en cada parte para asegurarnos que funcione como esperamos.
+
+[Antes de continuar leyendo, puedes consultar la documentcion para los tetst desde Openzeppelin.](https://docs.openzeppelin.com/learn/writing-automated-tests)
+
+El código usado aquí es largo por eso voy a incluir una explicación primero, puedes comparar y consultar el código del frontend que veremos luego con el código.
+
+Cada explicación corresponde al numero escrito en el comentario superior de cada bloque de código
+
+**1.** Primero preparar lo que usaremos para realizar cada test y establecer  **beforeEach** para cada caso de test.
+
+**2.** Desplegamos el contract para cada caso de test con `beforeEach`. Se puede ver que solo podemos seleccionar seller (vendedor), firstBuyer (el primer comprador), secondBuyer (segundo comprador) de la lista de signers (cuenta) dada por Hardhat.
+
+**3.** Si comparamos esta parte con la parte anterior de los eventos, podemos ver que vamos a incluir ese código para usarlo en cada caso test.
+
+**4.** Estos tests probarán lo que el vendedor puede hacer después de desplegar el contract. Se puede ver que los eventos y el cambio de estado del contract también se prueban después de esperar por la función llamada con `await`. También tenemos `expectRevert` de **@openzeppelin/test-helpers** que se usa pata obtener mensajes de error cada vez que ocurra un revert.
+
+**5.** Con estos tests se probará lo que el vendedor (seller) y el buyer (comprador) pueden hacer después de que un visitante se convierta en el primer buyer (comprador). Se puede ver quién puede llamar al contract con el método `escrow.connect`. 
+
+**6.** Puedes ver que el buyer (comprador) puede revender al mismo buyer (primer comprador) o al segundo con el código que se muestra. También puedes observar que debemos usar **to.deep.equal** para comparar los arreglos.
+
+```js 
+const { expect } = require("chai");
+const { expectRevert } = require('@openzeppelin/test-helpers'); 
+
+const humanReadableUnixTimestamp = (timestampInt) => {
+  return new Date(timestampInt * 1000);
+}
+
+describe("Escrow Events and State", function() {
+  
+  // 1.
+  let provider;
+  let Escrow, escrow, seller, firstBuyer, secondBuyer; // seller is owner
+
+  let closedEvent, 
+      confirmPurchaseEvent, 
+      sellerRefundBuyerEvent,
+      confirmReceivedEvent, 
+      sellerRefundedEvent, 
+      restartedEvent,
+      endEvent;
+
+  beforeEach(async () => {
+    provider = ethers.getDefaultProvider();
+
+    Escrow = await ethers.getContractFactory("Escrow");
+    escrow = await Escrow.deploy({ value: ethers.utils.parseEther("2.0") });  
+
+    // 2. 
+    [seller, firstBuyer, secondBuyer, _] = await ethers.getSigners();
+
+    // 3.
+    closedEvent = new Promise((resolve, reject) => {
+      escrow.on('Closed', (when, event) => {
+        event.removeListener();
+
+        resolve({
+          when,
+        });
+      });
+
+      setTimeout(() => {
+        reject(new Error('timeout'));
+      }, 60000)
+    });
+
+    confirmPurchaseEvent = new Promise((resolve, reject) => {
+      escrow.on('ConfirmPurchase', (when, by, event) => {
+        event.removeListener();
+
+        resolve({
+          when,
+          by,
+        });
+      });
+
+      setTimeout(() => {
+        reject(new Error('timeout'));
+      }, 60000)
+    });
+
+    sellerRefundBuyerEvent = new Promise((resolve, reject) => {
+      escrow.on('SellerRefundBuyer', (when, event) => {
+        event.removeListener();
+
+        resolve({
+          when,
+        });
+      });
+
+      setTimeout(() => {
+        reject(new Error('timeout'));
+      }, 60000)
+    });
+
+    confirmReceivedEvent = new Promise((resolve, reject) => {
+      escrow.on('ConfirmReceived', (when, by, event) => {
+        event.removeListener();
+
+        resolve({
+          when,
+          by,
+        });
+      });
+
+      setTimeout(() => {
+        reject(new Error('timeout'));
+      }, 60000)
+    });
+
+    sellerRefundedEvent = new Promise((resolve, reject) => {
+      escrow.on('SellerRefunded', (when, event) => {
+        event.removeListener();
+
+        resolve({
+          when,
+        });
+      });
+
+      setTimeout(() => {
+        reject(new Error('timeout'));
+      }, 60000)
+    });
+
+    restartedEvent = new Promise((resolve, reject) => {
+      escrow.on('Restarted', (when, event) => {
+        event.removeListener();
+
+        resolve({
+          when,
+        });
+      });
+
+      setTimeout(() => {
+        reject(new Error('timeout'));
+      }, 60000)
+    });
+
+    endEvent = new Promise((resolve, reject) => {
+      escrow.on('End', (when, event) => {
+        event.removeListener();
+
+        resolve({
+          when,
+        });
+      });
+
+      setTimeout(() => {
+        reject(new Error('timeout'));
+      }, 60000)
+    });
+  })
+
+  // 4.
+  it("Should set the contract state to 'Closed'.", async function () {
+    expect(await escrow.seller()).to.equal(seller.address);
+
+    expect(await escrow.totalSales()).to.equal(0); // Should be 0
+    expect(await escrow.state()).to.equal(0); // Sale
+
+    // 4.
+    await escrow.close(); 
+
+    let event = await closedEvent;
+    console.log("Closed");
+    console.log(humanReadableUnixTimestamp(event.when.toString()));
+
+    expect(await escrow.state()).to.equal(3); // Closed
+  });
+
+  it("Should set the contract state to 'Closed' to 'Sale' again", async function () {
+    expect(await escrow.seller()).to.equal(seller.address);
+
+    expect(await escrow.state()).to.equal(0); // Sale
+
+    // const beforeContractBalance = await provider.getBalance(escrow.address);
+    // console.log(ethers.utils.formatEther(beforeContractBalance));
+    // expect(ethers.utils.formatEther(beforeContractBalance)).to.equal(2);
+
+    // const beforeCloseSellerBalance = await provider.getBalance(seller.address);
+    // console.log(ethers.utils.formatEther(beforeCloseSellerBalance));
+
+    await escrow.close();
+
+    expect(await escrow.state()).to.equal(3); // Closed
+
+    await escrow.restartContract({ value: ethers.utils.parseEther("2.0") });
+    let event = await restartedEvent;
+    console.log("Restarted");
+    console.log(humanReadableUnixTimestamp(event.when.toString()));
+
+    expect(await escrow.state()).to.equal(0); // Sale
+  });
+
+  it("Should allow the seller to end the contract when the state is 'Closed'", async function () {
+    expect(await escrow.seller()).to.equal(seller.address);
+
+    expect(await escrow.state()).to.equal(0); // Sale
+
+    await escrow.close();
+
+    expect(await escrow.state()).to.equal(3); // Closed
+
+    // Revert with the error message "Seller shouldn't call this"
+    // 4.
+    await expectRevert(escrow.connect(firstBuyer).end(), "Only seller can call this.");
+    await expectRevert(escrow.connect(secondBuyer).end(), "Only seller can call this.");
+
+    // Only seller can call this.
+    await escrow.end();
+
+    let event = await endEvent;
+    console.log("End");
+    console.log(humanReadableUnixTimestamp(event.when.toString()));
+  });
+
+  // 5.
+  it("Should set the contract state to 'Sale' to 'Locked' and refundSeller should fail and refundBuyer should work.", async function () {
+    expect(await escrow.seller()).to.equal(seller.address);
+    expect(await escrow.state()).to.equal(0); // Sale
+
+    expect(await escrow.buyer()).to.equal("0x0000000000000000000000000000000000000000"); // Not set yet, default
+
+    // Revert with the error message "Seller shouldn't call this"
+    await expectRevert(escrow.confirmPurchase({ value: ethers.utils.parseEther("2.0") }), "Seller shouldn't call this");
+
+    // How to set msg.sender for ether js?
+    // Use connect method
+
+    // 5.
+    await escrow.connect(firstBuyer).confirmPurchase({ value: ethers.utils.parseEther("2.0") })
+
+    let event = await confirmPurchaseEvent;
+    console.log("ConfirmPurchase");
+    console.log(humanReadableUnixTimestamp(event.when.toString()));
+    expect(event.by).to.equal(firstBuyer.address);
+
+    expect(await escrow.buyer()).to.equal(firstBuyer.address);
+    expect(await escrow.state()).to.equal(1); // Locked
+
+    // When "Locked", shouldn't allow this. Revert with the error message "revert Invalid state"
+    await expectRevert(escrow.refundSeller(), "revert Invalid state");
+
+    await escrow.refundBuyer();
+
+    event = await sellerRefundBuyerEvent;
+    console.log("SellerRefundBuyer");
+    console.log(humanReadableUnixTimestamp(event.when.toString()));
+
+    expect(await escrow.state()).to.equal(0); // Sale
+    expect(await escrow.buyer()).to.equal("0x0000000000000000000000000000000000000000");
+  });
+
+  it(`
+    Should set the contract state to 'Sale' -> 'Locked' -> 'Release' (First Buyer)
+    and allow refundSeller -> 'Complete' and contract should increase total sales. (Seller)
+  `, async function () {
+    expect(await escrow.seller()).to.equal(seller.address);
+    expect(await escrow.state()).to.equal(0); // Sale
+
+    expect(await escrow.buyer()).to.equal("0x0000000000000000000000000000000000000000"); // Not set yet, default
+
+    // Revert with the error message "Seller shouldn't call this"
+    await expectRevert(escrow.confirmPurchase({ value: ethers.utils.parseEther("2.0") }), "Seller shouldn't call this");
+
+    // How to set msg.sender for ether js?
+    // Use connect method
+    await escrow.connect(firstBuyer).confirmPurchase({ value: ethers.utils.parseEther("2.0") })
+    
+    expect(await escrow.buyer()).to.equal(firstBuyer.address);
+    expect(await escrow.state()).to.equal(1); // Locked
+
+    await escrow.connect(firstBuyer).confirmReceived();
+
+    let event = await confirmReceivedEvent;
+    console.log("ConfirmReceived");
+    console.log(humanReadableUnixTimestamp(event.when.toString()));
+    expect(await event.by).to.equal(firstBuyer.address);
+    
+    expect(await escrow.state()).to.equal(2); // Released
+
+    await escrow.refundSeller();
+
+    event = await sellerRefundedEvent;
+    console.log("SellerRefunded");
+    console.log(humanReadableUnixTimestamp(event.when.toString()));
+    
+    expect(await escrow.state()).to.equal(4); // Complete
+    expect(await escrow.totalSales()).to.equal(1); // Complete
+  });
+
+  const firstPurchase = async () => {
+    expect(await escrow.seller()).to.equal(seller.address);
+    expect(await escrow.state()).to.equal(0); // Sale
+
+    expect(await escrow.buyer()).to.equal("0x0000000000000000000000000000000000000000"); // Not set yet, default
+
+    // Revert with the error message "Seller shouldn't call this"
+    await expectRevert(escrow.confirmPurchase({ value: ethers.utils.parseEther("2.0") }), "Seller shouldn't call this");
+
+    // How to set msg.sender for ether js?
+    // Use connect method
+    await escrow.connect(firstBuyer).confirmPurchase({ value: ethers.utils.parseEther("2.0") })
+
+    expect(await escrow.buyer()).to.equal(firstBuyer.address);
+    expect(await escrow.state()).to.equal(1); // Locked
+
+    await escrow.connect(firstBuyer).confirmReceived();
+
+    expect(await escrow.state()).to.equal(2); // Released
+
+    await escrow.refundSeller();
+
+    expect(await escrow.state()).to.equal(4); // Complete
+    expect(await escrow.totalSales()).to.equal(1); // Complete
+  }
+
+  // 6.
+  it(`
+    (First Buyer)
+    Should set the contract state to 'Sale' -> 'Locked' -> 'Release' 
+    (Seller)
+    and allow refundSeller -> 'Complete' and contract should increase total sales.
+    Then, the seller can restart the contract.
+  `, async function () {
+
+    await firstPurchase();
+
+    await escrow.restartContract({ value: ethers.utils.parseEther("2.0") });
+
+    expect(await escrow.state()).to.equal(0); // Sale again
+  });
+
+  it(`
+    (First Buyer)
+    Should set the contract state to 'Sale' -> 'Locked' -> 'Release' 
+    (Seller)
+    and allow refundSeller -> 'Complete' and contract should increase total sales.
+    Then, the seller can end the contract.
+  `, async function () {
+
+    await firstPurchase();
+
+    await escrow.restartContract({ value: ethers.utils.parseEther("2.0") });
+
+    await escrow.end();
+  });
+
+  it(`
+    (First Buyer)
+    Should set the contract state to 'Sale' -> 'Locked' -> 'Release' 
+    (Seller)
+    and allow refundSeller -> 'Complete' and contract should increase total sales.
+    Then, the seller can restart the contract.
+    (First Buyer)
+    Then, first buyer can rebuy
+  `, async function () {
+
+    await firstPurchase();
+
+    await escrow.restartContract({ value: ethers.utils.parseEther("2.0") });
+
+    // 
+
+    expect(await escrow.seller()).to.equal(seller.address);
+    expect(await escrow.state()).to.equal(0); // Sale
+
+    expect(await escrow.buyer()).to.equal("0x0000000000000000000000000000000000000000"); // Not set yet, default
+
+    // Revert with the error message "Seller shouldn't call this"
+    await expectRevert(escrow.confirmPurchase({ value: ethers.utils.parseEther("2.0") }), "Seller shouldn't call this");
+
+    // How to set msg.sender for ether js?
+    // Use connect method
+    await escrow.connect(firstBuyer).confirmPurchase({ value: ethers.utils.parseEther("2.0") })
+
+    expect(await escrow.buyer()).to.equal(firstBuyer.address);
+    expect(await escrow.state()).to.equal(1); // Locked
+
+    await escrow.connect(firstBuyer).confirmReceived();
+
+    expect(await escrow.state()).to.equal(2); // Released
+
+    await escrow.refundSeller();
+
+    expect(await escrow.state()).to.equal(4); // Complete
+    expect(await escrow.totalSales()).to.equal(2); // Complete
+  });
+
+  it(`
+    (Second Buyer)
+    Should set the contract state to 'Sale' -> 'Locked' -> 'Release' 
+    (Seller)
+    and allow refundSeller -> 'Complete' and contract should increase total sales.
+    Then, the seller can restart the contract
+  `, async function () {
+
+    await firstPurchase();
+    
+    await escrow.restartContract({ value: ethers.utils.parseEther("2.0") });
+
+    // Second Buyer
+
+    expect(await escrow.state()).to.equal(0); // Sale again
+    // Buyer should be reset;
+    expect(await escrow.buyer()).to.equal("0x0000000000000000000000000000000000000000");
+
+    // Repeat the almost same code for the second buyer.
+    // expect(await escrow.buyer()).to.equal(firstBuyer.address); // Yet, First Buyer 
+
+    // Revert with the error message "Seller shouldn't call this"
+    await expectRevert(escrow.confirmPurchase({ value: ethers.utils.parseEther("2.0") }), "Seller shouldn't call this");
+
+    await escrow.connect(secondBuyer).confirmPurchase({ value: ethers.utils.parseEther("2.0") })
+
+    // New buyer
+    expect(await escrow.buyer()).to.equal(secondBuyer.address);
+    expect(await escrow.state()).to.equal(1); // Locked
+
+    await escrow.connect(secondBuyer).confirmReceived();
+
+    expect(await escrow.state()).to.equal(2); // Released
+
+    await escrow.refundSeller();
+
+    expect(await escrow.state()).to.equal(4); // Complete
+
+    expect(await escrow.totalSales()).to.equal(2); // One more purchase
+
+    await escrow.restartContract({ value: ethers.utils.parseEther("2.0") });
+
+    // 6.
+    // Without deep, it fails here.
+    expect(await escrow.listPreviousBuyers()).to.deep.equal([firstBuyer.address, secondBuyer.address])
+  });
+});
+```
+
+Para iniciar los tests usamos `$yarn test`, y deberías ver algo similar a esto.
+
+```md
+Creating Typechain artifacts in directory typechain for target ethers-v5
+Successfully generated Typechain artifacts!
+```
+
+[El código paso todos los tests](https://github.com/steadylearner/blockchain/blob/main/real/eth/test/escrow-test.js) y vemos que esta funcionando como esperabamos.
+
+Entonces podemos decir que el backend de nuestro dapp esta casi listo. Antes de empezar con el frontend necesitamos configurar nuestro Metamask para poder probarlo con cuentas de nuestro Hardhat local.
+
+## 3. Configuración de Metamask con Hardhat
+
+Para usar nuestro código de Solidity con el frontend, primero tenemos que correr nuestro blockchain en local con el comando `$yarn serve` ($npx hardhat node). 
+
+Se van a mostrar unas cuentas gratuitas similares a estás con 10000ETH cada una.
+
+```md
+$npx hardhat node
+Started HTTP and WebSocket JSON-RPC server at http://127.0.0.1:8545/
+
+Accounts
+========
+Account #0: 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266 (10000 ETH)
+Private Key: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+Account #1: 0x70997970c51812dc3a010c7d01b50e0d17dc79c8 (10000 ETH)
+Private Key: 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+
+Account #2: 0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc (10000 ETH)
+Private Key: 0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a
+```
+
+Ahora podemos desplegar nuestro contract, para eso abrimos otra consola y escribimos el siguiente comando `$yarn deploy`($npx hardhat run scripts/deploy.js --network localhost).
+
+Vamos a correr nuestro plugin de Metamask en el explorador.
+
+Incluye por lo menos tres de las cuentas gratuitas. 
+ 
+![Include account](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/lw469y8fa6byijq7pewf.png)
+
+Colocales el nombre de seller (Vendedor), first buyer (primer comprador) y second buyer (segundo comprador) respectivamente.
+
+Debería verse así
+
+![Detail](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/z7r14jqowldrvfntsom7.png)
+
+El nombre de la cuenta actualizado
+
+![Name](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/89j66zshgyc2mslakiqt.png)
+
+Estamos haciendo lo mismo que hemos hecho en la parte de test pero con Metamask para que no tengas problema usandolo luego con el frontend.
+
+```js
+[seller, firstBuyer, secondBuyer, _] = await ethers.getSigners();
+```
+
+Espero que lo hayas podido incluir sin problema.
+
+En caso de que te encuentres con algún problema cuando hagas el test a este contract con el frontend, siempre puedes volver a configurar la cuenta y volver a probar.
+
+Configuración/avanzado/redefinir
+
+![Redefine](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/3y7rx1rae1i4xvvzzikh.png)
+
+## 4. Programar el frontend con React y ethers.js
+
+Ya para este punto preparamos todo para poder empezar a programar el frontend de nuestro smart contract. Si lo quieres revisar entra a [GitHub](https://github.com/steadylearner/blockchain/tree/main/real/eth/src), y vas a encontrar la logica en el archivo [App.js](https://github.com/steadylearner/blockchain/blob/main/real/eth/src/App.js).
+
+Algunas partes son casi idénticas a los archivos de test que leiste en la seccion pasada. Otros son módulos de CSS para poder mostrar los datos de una manera mas presentable.
+ 
+Voy a explicar las partes mas importantes.
+
+**1.** Vamos a permitir al seller (vendedor), al visitor (visitante) y al buyer (comprador) usar las funciones que definimos al principio dependiendo del estado del contract.
+
+**2.** Luego actualizaremos el estado del frontend escuchando los eventos del blockchain con contract.on(<eventname>) y las funciones callback. 
+
+```js
+import { useEffect, useState, createRef } from 'react';
+import { Contract, ethers } from 'ethers'
+
+import moment from "moment";
+
+import { Container, Dimmer, Loader, Grid, Sticky, Message } from 'semantic-ui-react';
+import 'semantic-ui-css/semantic.min.css';
+
+import Escrow from './artifacts/contracts/Escrow.sol/Escrow.json'
+
+import {
+  humanReadableEscrowState,
+  humanReadableUnixTimestamp,
+} from "./formatters";
+
+import ContractDetails from "./components/ContractDetails";
+import Balance from "./components/Balance";
+
+import Seller from "./components/users/Seller";
+import Visitor from "./components/users/Visitor";
+import Buyer from "./components/users/Buyer";
+import PreviousBuyers from "./components/PreviousBuyers";
+
+// localhost
+const escrowAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+
+// Move this to context?
+const provider = new ethers.providers.Web3Provider(window.ethereum);
+const contract = new ethers.Contract(escrowAddress, Escrow.abi, provider);
+
+// Show metamask for users to decide if they will pay or not
+async function requestAccount() {
+  try {
+    await window.ethereum.request({ method: 'eth_requestAccounts' });
+  } catch (error) {
+    console.log("error");
+    console.error(error);
+
+    alert("Login to Metamask first");
+  }
+}
+
+function App() {
+  const [contractEnd, setContractEnd] = useState(true);
+
+  const [escrow, setEscrow] = useState({
+    state: null,
+    balance: 0,
+    price: 1, // 1 ETH by default
+    sales: 0,
+    previousBuyers: [],
+  });
+
+  // Use object instead?
+  const [seller, setSeller] = useState();
+  const [sellerBalance, setSellerBalance] = useState();
+
+  // Use object instead?
+  const [buyer, setBuyer] = useState();
+  const [buyerBalance, setBuyerBalance] = useState();
+
+  // Use object instead?
+  const [user, setUser] = useState();
+  const [userBalance, setUserBalance] = useState();
+
+  const [role, setRole] = useState();
+
+  useEffect(() => {
+    async function fetchData() {
+
+      try {
+        // 2.
+        // Contract event handlers
+
+        contract.on("Closed", async (when, event) => {
+          event.removeListener(); // Solve memory leak with this.
+
+          const contractState = await contract.state();
+          // const contractState = await contract.showState();
+
+          const contractBalance = await provider.getBalance(contract.address);
+          const previousBuyers = await contract.listPreviousBuyers();
+
+          setEscrow({
+            ...escrow,
+            state: humanReadableEscrowState(contractState), // Easier
+            // state: await contractState.toString(),
+            balance: ethers.utils.formatEther(contractBalance.toString()),
+            previousBuyers,
+          })
+
+          const contractSeller = await contract.seller();
+          const contractSellerBalance = await provider.getBalance(contractSeller);
+          setSellerBalance(ethers.utils.formatEther(contractSellerBalance));
+
+          // console.log("when");
+          // console.log(when);
+          // console.log(humanReadableUnixTimestamp(when));
+          console.log("Event - Closed");
+          console.log(`State - ${humanReadableEscrowState(contractState)}`);
+          console.log(`${moment(humanReadableUnixTimestamp(when)).fromNow()} - ${humanReadableUnixTimestamp(when)}`)
+        });
+
+        contract.on("ConfirmPurchase", async (when, by, event) => {
+          event.removeListener(); // Solve memory leak with this.
+
+          const contractState = await contract.state();
+          const contractBalance = await provider.getBalance(contract.address);
+          const previousBuyers = await contract.listPreviousBuyers();
+
+          setEscrow({
+            ...escrow,
+            state: humanReadableEscrowState(contractState),
+            balance: ethers.utils.formatEther(contractBalance.toString()),
+            previousBuyers,
+          })
+
+          setBuyer(by);
+          const contractBuyerBalance = await provider.getBalance(by);
+          setBuyerBalance(ethers.utils.formatEther(contractBuyerBalance));
+
+          setRole("buyer");
+          console.log("This visitor became the buyer of this contract");
+
+          // console.log("when");
+          // console.log(when);
+          // console.log(humanReadableUnixTimestamp(when));
+          console.log("Event - ConfirmPurchase");
+          console.log(`By - ${by}`);
+          console.log(`State - ${humanReadableEscrowState(contractState)}`);
+          console.log(`${moment(humanReadableUnixTimestamp(when)).fromNow()} - ${humanReadableUnixTimestamp(when)}`)
+        });
+
+        contract.on("SellerRefundBuyer", async (when, event) => {
+          event.removeListener(); // Solve memory leak with this.
+
+          const contractState = await contract.state();
+          // const contractBalance = await provider.getBalance(contract.address);
+          // const previousBuyers = await contract.listPreviousBuyers();
+
+          setEscrow({
+            ...escrow,
+            state: humanReadableEscrowState(contractState),
+            // balance: ethers.utils.formatEther(contractBalance.toString()),
+            // previousBuyers,
+          })
+
+          console.log("This seller refunded the buyer of this contract");
+
+          // console.log("when");
+          // console.log(when);
+          // console.log(humanReadableUnixTimestamp(when));
+          console.log("Event - SellerRefundBuyer");
+          console.log(`State - ${humanReadableEscrowState(contractState)}`);
+          console.log(`${moment(humanReadableUnixTimestamp(when)).fromNow()} - ${humanReadableUnixTimestamp(when)}`)
+        });
+
+        contract.on("ConfirmReceived", async (when, by, event) => {
+          event.removeListener(); // Solve memory leak with this.
+
+          const contractState = await contract.state();
+          const contractBalance = await provider.getBalance(contract.address);
+          const previousBuyers = await contract.listPreviousBuyers();
+          console.log(previousBuyers);
+
+          setEscrow({
+            ...escrow,
+            state: humanReadableEscrowState(contractState),
+            balance: ethers.utils.formatEther(contractBalance.toString()),
+            previousBuyers,
+          })
+
+          setBuyer(by);
+          const contractBuyerBalance = await provider.getBalance(by);
+          setBuyerBalance(ethers.utils.formatEther(contractBuyerBalance));
+
+          console.log("Event - ConfirmReceived");
+          console.log(`By - ${by}`);
+          console.log(`State - ${humanReadableEscrowState(contractState)}`);
+          console.log(`${moment(humanReadableUnixTimestamp(when)).fromNow()} - ${humanReadableUnixTimestamp(when)}`)
+        });
+
+        contract.on("SellerRefunded", async (when, event) => {
+          event.removeListener(); // Solve memory leak with this.
+
+          const contractState = await contract.state();
+          const contractBalance = await provider.getBalance(contract.address);
+
+          const previousBuyers = await contract.listPreviousBuyers();
+          console.log(previousBuyers);
+
+          setEscrow({
+            ...escrow,
+            state: humanReadableEscrowState(contractState),
+            balance: ethers.utils.formatEther(contractBalance.toString()),
+            previousBuyers,
+          })
+
+          const contractSeller = await contract.seller();
+          const contractSellerBalance = await provider.getBalance(contractSeller);
+          setSellerBalance(ethers.utils.formatEther(contractSellerBalance));
+
+          console.log("Event - SellerRefunded");
+          console.log(`State - ${humanReadableEscrowState(contractState)}`);
+          console.log(`${moment(humanReadableUnixTimestamp(when)).fromNow()} - ${humanReadableUnixTimestamp(when)}`)
+        });
+
+        contract.on("Restarted", async (when, event) => {
+          event.removeListener();
+
+          const contractState = await contract.state();
+          const contractBalance = await provider.getBalance(contract.address);
+          const previousBuyers = await contract.listPreviousBuyers();
+
+          setEscrow({
+            ...escrow,
+            state: humanReadableEscrowState(contractState),
+            balance: ethers.utils.formatEther(contractBalance.toString()),
+            previousBuyers,
+          })
+          const contractSeller = await contract.seller();
+          const contractSellerBalance = await provider.getBalance(contractSeller);
+          setSellerBalance(ethers.utils.formatEther(contractSellerBalance));
+
+          setBuyer();
+          setBuyerBalance();
+
+          console.log("Event - Restarted");
+          console.log(`State - ${humanReadableEscrowState(contractState)}`);
+          console.log(`${moment(humanReadableUnixTimestamp(when)).fromNow()} - ${humanReadableUnixTimestamp(when)}`);
+        });
+
+        contract.on("End", async (_when, _event) => {
+          // This doesn't work
+          // event.removeListener();
+
+          // console.log("Event - End");
+          // console.log(`${moment(humanReadableUnixTimestamp(when)).fromNow()} - ${humanReadableUnixTimestamp(when)}`)
+          setContractEnd(false);
+        });
+
+        // Contract State
+        const contractState = await contract.state()
+        const contractBalance = await provider.getBalance(contract.address);
+        const contractPrice = await contract.price()
+        // const contractSales = await contract.totalSales();
+        const contractPreviousBuyers = await contract.listPreviousBuyers();
+        // console.log(contractPreviousBuyers);
+
+        setEscrow({
+          state: humanReadableEscrowState(contractState),
+          balance: ethers.utils.formatEther(contractBalance.toString()),
+          price: ethers.utils.formatEther(contractPrice.toString()),
+          // sales: contractSales.toString(),
+          previousBuyers: contractPreviousBuyers,
+        })
+
+        const contractSeller = await contract.seller();
+        setSeller(contractSeller);
+        const contractSellerBalance = await provider.getBalance(contractSeller);
+        setSellerBalance(ethers.utils.formatEther(contractSellerBalance));
+
+        const contractBuyer = await contract.buyer()
+        setBuyer(contractBuyer);
+        const contractBuyerBalance = await provider.getBalance(contractBuyer);
+        setBuyerBalance(ethers.utils.formatEther(contractBuyerBalance)); // Should make this part work again.
+
+        const signer = provider.getSigner(); // user
+
+        const contractUser = await signer.getAddress();
+        setUser(contractUser);
+        const contractUserBalance = await provider.getBalance(contractUser);
+        setUserBalance(ethers.utils.formatEther(contractUserBalance));
+
+        if (contractUser === contractSeller) {
+          setRole("seller");
+        } else if (contractUser === contractBuyer) {
+          setRole("buyer");
+        } else {
+          setRole("visitor");
+        }
+      } catch (error) {
+        console.log("error");
+        console.error(error);
+      }
+    }
+
+    fetchData();
+  }, []);
+
+  // 1. Event functions
+  async function close() {
+    if (!escrow.state || escrow.state !== "Sale") {
+      return;
+    }
+
+    if (typeof window.ethereum !== 'undefined') {
+      await requestAccount()
+
+      const signer = provider.getSigner(); // Your current metamask account;
+
+      // console.log("signer");
+      // console.log(signer);
+
+      const forClose = new ethers.Contract(escrowAddress, Escrow.abi, signer);
+
+      const transaction = await forClose.close();
+      await transaction.wait();
+    }
+  }
+
+  // Visitor
+  async function purchase() {
+    if (!escrow.state || escrow.state !== "Sale") {
+      return;
+    }
+
+    if (typeof window.ethereum !== 'undefined') {
+      await requestAccount()
+
+      const signer = provider.getSigner(); // Your current metamask account;
+      const forPurchase = new ethers.Contract(escrowAddress, Escrow.abi, signer); 
+
+      const transaction = await forPurchase.confirmPurchase({ value: ethers.utils.parseEther("2.0") });
+      await transaction.wait();
+    }
+  }
+
+  async function receive() {
+    if (!escrow.state || escrow.state !== "Locked") {
+      return;
+    }
+
+    if (typeof window.ethereum !== 'undefined') {
+      await requestAccount()
+
+      const signer = provider.getSigner(); // Your current metamask account;
+      const contract = new ethers.Contract(escrowAddress, Escrow.abi, signer);
+
+      const transaction = await contract.confirmReceived();
+      await transaction.wait();
+    }
+  }
+
+  async function refundBuyer() {
+    if (!escrow.state || escrow.state !== "Locked") return
+
+    if (typeof window.ethereum !== 'undefined') {
+      await requestAccount()
+
+      const signer = provider.getSigner(); // Your current metamask account;
+
+      const forRefund = new ethers.Contract(escrowAddress, Escrow.abi, signer);
+      const transaction = await forRefund.refundBuyer();
+      await transaction.wait();
+    }
+  }
+
+  async function refundSeller() {
+    if (!escrow.state || escrow.state !== "Release") return
+
+    if (typeof window.ethereum !== 'undefined') {
+      await requestAccount()
+
+      const signer = provider.getSigner(); // Your current metamask account;
+
+      const forRefund = new ethers.Contract(escrowAddress, Escrow.abi, signer);
+      const transaction = await forRefund.refundSeller();
+      await transaction.wait();
+
+      // call currentEscrowState here and it will show you inactive at the screen
+      // fetchGreeting()
+    }
+  }
+
+  async function restart() {
+    if (!escrow.state) return
+    // if (!escrow.state || escrow.state !== "Closed" || escrow.state !== "Complete" ) return
+
+    if (typeof window.ethereum !== 'undefined') {
+      await requestAccount()
+
+      const signer = provider.getSigner(); // Your current metamask account;
+
+      const forRestart = new ethers.Contract(escrowAddress, Escrow.abi, signer);
+      const transaction = await forRestart.restartContract({ value: ethers.utils.parseEther("2.0") });
+      await transaction.wait();
+    }
+  }
+
+  async function end() {
+    if (!escrow.state) return
+    // if (!escrow.state || escrow.state !== "Closed" || escrow.state !== "Complete") return
+
+    if (typeof window.ethereum !== 'undefined') {
+      await requestAccount()
+
+      const signer = provider.getSigner(); // Your current metamask account;
+
+      const forEnd = new ethers.Contract(escrowAddress, Escrow.abi, signer);
+      const transaction = await forEnd.end();
+      await transaction.wait();
+    }
+  }
+
+  // End event
+  if (!contractEnd) {
+    return null;
+  }
+
+  if (!escrow.state) {
+    return null;
+  }
+
+  // const contextRef = createRef();
+
+  let balance;
+  if (role === "seller") {
+    balance = sellerBalance
+  } else if (role === "buyer") {
+    balance = buyerBalance;
+  } else {
+    balance = userBalance;
+  }
+
+  return (
+    <div>
+      <Sticky >
+        <Balance
+          balance={balance}
+        // setAccountAddress={setAccountAddress} 
+        />
+      </Sticky>
+      <div style={{
+        // borderTop: "1px solid black",
+        margin: "0 auto",
+        display: "flex",
+        flexFlow: "column",
+        alignItems: "center",
+
+        background: "#efefef",
+        minHeight: "100vh",
+      }}>
+        <ContractDetails
+          address={contract.address}
+          sales={escrow.previousBuyers.length}
+          escrowState={escrow.state}
+          price={escrow.price}
+          balance={escrow.balance}
+        // lastEdited={lastEdited}
+        />
+
+        <br />
+
+        {escrow.previousBuyers.length > 0 && <div style={{
+          width: "28rem",
+          marginBottom: "1.5rem",
+
+          border: "1px solid black",
+          borderRadius: "0.5rem",
+          padding: "0.5rem 1rem 1rem 1rem",
+
+          background: "white",
+        }} ><PreviousBuyers previousBuyers={escrow.previousBuyers} /></div>}
+
+        {role && <div style={{
+          width: "28rem",
+          marginBottom: "1.5rem",
+
+          border: "1px solid black",
+          borderRadius: "0.5rem",
+          padding: "0.5rem 1rem 1rem 1rem",
+
+          background: "white",
+        }} >
+          {role === "seller" && <Seller
+            address={seller}
+            buyer={buyer}
+
+            escrowState={escrow.state}
+            close={close}
+
+            refundBuyer={refundBuyer}
+            refundSeller={refundSeller}
+
+            restart={restart}
+            end={end}
+          />}
+
+          {role === "visitor" && <Visitor
+            address={user}
+            seller={seller}
+            // balance={userBalance}
+
+            escrowState={escrow.state}
+
+            purchase={purchase}
+          />}
+
+          {role === "buyer" && <Buyer
+            address={buyer}
+            seller={seller}
+
+            escrowState={escrow.state}
+
+            receive={receive}
+          />}
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+export default App;
+```
+
+Puedes probar el código en tu explorador con
+
+```
+$yarn start
+```
+
+Debería mostrar algo similar a las imágenes del principio del post.
+
+Prueba cada botón y situación como vendedor, comprador, primer comprador, segundo comprador, etc. Verás que la página se actualiza por cada petición con las funciones que definimos anteriormente.
+
+También pruebalo como first buyer (primer comprador) y second buyer (segundo comprador) y ás que aparecerá la lista de compradores anteriores y ventas totales será igual a 2.
+
+![End result](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/ywaby85zxq2839is5yv7.png)
+
+Espero que lo hayas logrado y obtenido 2ETH como vendedor í como en la imagen de arriba.
+
+También se puede ver que el balance fue modificado.
+
+![balance result](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/ten6iyqok909pzrsmcni.png)
+
+Si tienes suficiente tiempo o tienes un cliente pagando, puedes intentar actualziar el frontend con React Context o Redux o cualquier libreria que desees usar para gestionar el estado, así como extraer el CSS con [baseweb](https://baseweb.design/).
+
+## 4. Conclusión
+
+En este post aprendimos a programar una aplicación full stack descentralizada (dapp) con React, Hardhat y ether.js.
+
+Si logrste seguir este post sin problemas, te daras cuenta que los comandos que te facilite al principio son suficiente para poder correr la dapp de forma local.
+
+Actualiza el smart contract con el tema de tu interés en caso de que no quieras que sea sobre autos, y has tu propio proyecto.
+
+Considero que fue una buena experiencia preparar y escribir este post.
+
+Si te gusto este post por favor compartelo con otros. Planeo seguir compartiendo mas contenido de blockchain, estoy interesado en ETH y POLKADOT.
+
+[Si necesitas un desarrollador, puedes contactarme.](https://t.me/steadylearner) 
+
+Puedo hacer aplicaciones full stack.
+
+[Si deseas actualizar este ejemplo puedes consultar este post.](https://www.toptal.com/ethereum-smart-contract/time-locked-wallet-truffle-tutorial)  
+
+Gracias.
