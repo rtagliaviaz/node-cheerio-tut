@@ -3,10 +3,6 @@ const cheerio = require("cheerio");
 const axios = require("axios");
 const router = Router()
 
-router.get('/', (req, res) => {
-  res.send('Hello World!')
-})
-
 const url = "https://www.pricecharting.com/search-products?q="
 let videoGames = []
 
